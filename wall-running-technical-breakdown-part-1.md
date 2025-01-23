@@ -6,13 +6,13 @@ layout: default
 
 In this 2 part blog I will explain the theory and implementation of a basic character controller and add the advanced movement mechanic along side it. Wall running, This will spice up any game by giving the player a lot more freedom to explore your game world.
 
-Part 1: [Character controller](./index.html) \
-Part 2: [Wall running](./another-page.html)
+Part 1: [Character controller](./wall-running-technical-breakdown-part-1.html) \
+Part 2: [Wall running](./wall-running-technical-breakdown-part-2.html)
 
 In this first part we talk about the difference between kinematic and dynamic rigid bodies for character controllers. Show you a few examples from different media and show you my approach on the topic.\
 At the end of this part you will have a kinematic character controller with a first person camera that sweeps the area in the desired player input direction and handles the collision detection and resolves it. This same system will be easily applicable for gravity as well.
 
-If you are using a game engine like Unity then you can skip this first part and go directly to Part 2: [wall running](./another-page.html).
+If you are using a game engine like Unity then you can skip this first part and go directly to Part 2: [wall running](./wall-running-technical-breakdown-part-2.html).
 
 
 ### Difference between kinematic and dynamic
@@ -264,7 +264,7 @@ void Move(float velocity)
 ```
 
 
-This should get you in a good place to start [Part 2: wall running](./another-page.html).
+This should get you in a good place to start [Part 2: wall running](./wall-running-technical-breakdown-part-2.html).
 
 Sources:
 
