@@ -19,7 +19,7 @@ If you are using a game engine like Unity then you can skip this first part and 
 
 Typically in games, character controller are either kinematic or dynamic.
 
-#### dynamic
+#### Dynamic
 The difference is that dynamic character controllers move their characters using forces resolved purely by the physics engine. \
 Examples of this are seen in games like:
 - Gang Beasts
@@ -30,7 +30,7 @@ Examples of this are seen in games like:
 These games often make it their USP (unique selling point) that their game characters are physics driven.
 Games like "Gang Beasts" and "Human: Fall Flat" use that slightly unpredictable chaos of using forces to drive the player to create funny interactions with the environment and other players.
 
-#### kinematic
+#### Kinematic
 Kinematic character controllers move their players directly without passing input through the physics engine first. the player directly effects the character. kinematic character controllers aren't moved by forces. physics is sort of faked in these types of games.
 
 Examples of this are seen in games like:
@@ -275,6 +275,8 @@ Sources:
 [Collide And Slide - *Actually Decent* Character Collision From Scratch - Poke Dev](https://youtu.be/YR6Q7dUz2uk?si=HxrokkEFIoWsMxGK)\
 [Improving the Numerical Robustness of Sphere Swept Collision Detection - Jeff Linahan](https://arxiv.org/pdf/1211.0059)\
 [Improved Collision detection and Response - Kasper Fauerby](http://www.peroxide.dk/papers/collision/collision.pdf)\
+[ADVANCED WALL RUNNING - Unity Tutorial (Remastered) - Dave / GameDevelopment](https://youtu.be/gNt9wBOrQO4?si=yqR1M8BOmWqbvtyn)\
+[Parkour movement Tutorial In Unity  - Harald](https://youtu.be/XM3MNMmHTxs?si=mX8WsBSkYStbtoAb)\
 [Why Is Titanfall 2’s Movement System So Good? - Callum Gibson](https://claritypotion.com/2022/07/11/titanfall-movement-system-so-good/)\
 [Designing Unforgettable Titanfall Single Player Levels with Action Blocks - Christopher Dionne](https://www.gdcvault.com/play/1025105/Designing-Unforgettable-Titanfall-Single-Player)\
 [How Titanfall 2 Made Movement the Star of the Show - Art of the Level - IGN](https://youtu.be/jajgleIR9tI?si=IzHN2Yixv5PZF8n0)\

@@ -13,7 +13,7 @@ In this second part we will talk about how you can take your character controlle
 At the end of this part you will have on top of your character controller, one that can at runtime detect "walls" and walk on them.
 On top of that you as the developer can also decide what should be the parameters to initialize and end a wall run.
 
-### Difference between pre-calculated and runtime wall runtime
+### Difference between pre-calculated and runtime wall detection
 
 There are 2 approaches to detecting if a wall is suitable to be ran on. We are gonna take a quick look why I chose the method I chose and the advantages and disadvantages of both.
 
@@ -45,7 +45,7 @@ Cons:
 * a lot more prone to bugs.
 * players can take paths you didn't intend to be possible and exploit.
 
-### wall running
+### Wall running
 
 Wall running is a niche movement mechanic often seen in games like Mirror's Edge Catalyst, Titanfall 2, Call of Duty: Black Ops III and ProtoType 2.
 In Titanfall series it is a staple peace of gameplay. There is an entire genre called "Movement-Shooters" which follows roughly the same idea.
@@ -57,23 +57,41 @@ I'm here to recreate a extremely dumbed down version of the Titanfall movement s
 Wall running is a feature in games where the player can run on walls.
 These walls are 99% of the time perfectly upright.
 
+Wall running is in a nutshell is:
+1. Cast 2 rays left and right from the player body.
+2. Check the rays left and right if found a suitable wall.
+3. Check if correct input given to start wallrun.
+4. Set wall run variables. (e.g. boolean for player states, jump charges for double jumps).
+5. Reset up velocity to not fall down.
+6. Cross the wall normal and up vector to decide wall run direction (along the wall).
+7. Move player along the wall (simular to collide and slide).
+7. Store last wall normal to not wallrun on same wall twice.
+8. Add some more parameters to stop and start wallrunning.
 
+Thats pretty much it.
+
+It is quite simular to the collide and slide algoritm since there you work with wall normals and re-projecting too.
+This should give you a basic understanding on how you should go about implementing this to your own game.
+Now It is implementation time.
 
 ##### Implementation
 
+```c++
+// Will add this later
+```
 
-#### sticking and unsticking
+#### Sticking and unsticking
 
 Sticking and unsticking to the wall to start and stop wall running is something that should be intuitive to the player.
 There are a few suggestions I have to handle the design of the player sticking to the wall and unsticking.
 
-sticking:
+Sticking:
 1. Only start wall run a short delay after jumping off the floor. to make you not wall run super low on the wall on accident.
 2. Only when running along with the wall. Compare the face normal and player moving direction. This stops you from going face first in a wall and starting the wall run anyway.
 3. When player is looking the right direction. You don't want to start wall running backwards.
 4. When having enough speed to start it. You're making a wall run, not a wall walk (duh).
 
-unsticking
+Unsticking
 1. If player looks to far away from the forward running direction.
 2. If the player presses jump.
 3. If player is running too long in one go without changing walls.
@@ -81,11 +99,14 @@ unsticking
 
 Sources:
 
+[Virtual-Key Codes - Windows](https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes)\
 [Character Controllers - NVIDIA](https://docs.nvidia.com/gameworks/content/gameworkslibrary/physx/guide/Manual/CharacterControllers.html)\
 [Moving Characters in Games – Kinematic Character Controller in Unity - Nick Maltbie](https://youtu.be/s-99Z_W8bcQ?si=ylJKyuFEmlmsqH07)\
 [Collide And Slide - *Actually Decent* Character Collision From Scratch - Poke Dev](https://youtu.be/YR6Q7dUz2uk?si=HxrokkEFIoWsMxGK)\
 [Improving the Numerical Robustness of Sphere Swept Collision Detection - Jeff Linahan](https://arxiv.org/pdf/1211.0059)\
 [Improved Collision detection and Response - Kasper Fauerby](http://www.peroxide.dk/papers/collision/collision.pdf)\
+[ADVANCED WALL RUNNING - Unity Tutorial (Remastered) - Dave / GameDevelopment](https://youtu.be/gNt9wBOrQO4?si=yqR1M8BOmWqbvtyn)\
+[Parkour movement Tutorial In Unity  - Harald](https://youtu.be/XM3MNMmHTxs?si=mX8WsBSkYStbtoAb)\
 [Why Is Titanfall 2’s Movement System So Good? - Callum Gibson](https://claritypotion.com/2022/07/11/titanfall-movement-system-so-good/)\
 [Designing Unforgettable Titanfall Single Player Levels with Action Blocks - Christopher Dionne](https://www.gdcvault.com/play/1025105/Designing-Unforgettable-Titanfall-Single-Player)\
 [How Titanfall 2 Made Movement the Star of the Show - Art of the Level - IGN](https://youtu.be/jajgleIR9tI?si=IzHN2Yixv5PZF8n0)\
