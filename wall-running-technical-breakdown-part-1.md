@@ -96,11 +96,14 @@ Collide and slide is in a nutshell is:
   5. project that movement vector along the plane of impact to "redirect it".
   6. apply the newly calculated vector and apply it to the player.
 
+  ![CollideAndSlide2](./assets/images/collide_and_slide_1.png)
 
 This is the bare bones version of the system. You can expand it by applying more steps:
+
   7. get the dot product of the angle of impact, compared to the normal of the face you collided with.
   8. relative to the dot product decrease the length of the newly calculated movement vector.
   9. check the gravity pass Collide and slide and if the floor check is too steep, slide, if flat enough. toggle player.m_grounded
+
 
 
 This should give you a basic understanding on how you should go about implementing this to your own game.
@@ -263,6 +266,9 @@ void Move(float velocity)
 }
 ```
 
+You dont gain any peformance when combining both velocity and gravity in this case due to it taking just as many calculations.
+
+![CollideAndSlide2](./assets/images/collide_and_slide_2.png)
 
 This should get you in a good place to start [Part 2: wall running](./wall-running-technical-breakdown-part-2.html).
 
