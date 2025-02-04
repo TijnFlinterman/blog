@@ -143,7 +143,7 @@ physicsSystem.GetInternalSystem()->GetNarrowPhaseQuery().CastShape(
 
 for (const auto& hit : collector.mHits)
 {
-  VECTOR3 hit_normal = ToGlm(-hit.mPenetrationAxis.normalize());
+  VECTOR3 hit_normal = -hit.PenetrationAxis.normalize();
 
   //Related to the normal of the collided plane, count that as a "ground"
 	if (gravityPass)
@@ -192,7 +192,7 @@ for (const auto& hit : collector.mHits)
 
     // this remapping is to make the player not "stick" to the wall as much
 		float scale = Remap(dotProduct, 0.0f, 0.15f, 0.0f, 1.0f);
-		scale = glm::Clamp(scale, 0.0f, 1.0f);
+		scale = Clamp(scale, 0.0f, 1.0f);
 
 		if (player.m_isGrounded && !gravityPass)
 		{
@@ -261,8 +261,8 @@ VECTOR3 gravity = VECTOR3(0,0,-10)
 
 void Move(float velocity)
 {
-		velocity += CollideAndSlide(velocity, transform.GetTranslation(), 0, false, velocity, player.speed);
-		velocity += CollideAndSlide(gravity, transform.GetTranslation() + velocity, 0, true, gravity, player.density);
+	velocity += CollideAndSlide(velocity, transform.GetTranslation(), 0, false, velocity, player.speed);
+	velocity += CollideAndSlide(gravity, transform.GetTranslation() + velocity, 0, true, gravity, player.gravityModifier);
 }
 ```
 
