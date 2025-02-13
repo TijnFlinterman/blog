@@ -2,6 +2,8 @@
 layout: default
 ---
 
+
+test
 ## Part 1: Character controller
 
 In this 2 part blog I will explain the theory and implementation of a basic character controller and add the advanced movement mechanic along side it. Wall running, This will spice up any game by giving the player a lot more freedom to explore your game world.
