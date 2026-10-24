@@ -4,40 +4,45 @@ layout: default
 
 # Adaptive Squad Formations for Breach-and-Clear AI
 
-This blog post is an introduction to formations in game AI — what they are, the building blocks they're made of, and how I used them to build a SWAT-style breach-and-clear system in C++ for a project as a third-year student at Breda University of Applied Sciences.
+I'm a 3rd year student and Breda University of Applied Sciences, my name is Tijn Flinterman and this blog post covers my journey through AI formations, What it is, how I made it and how I used it to make my SWAT-style breach-and-clear system in C++. 
 
 **Table of contents**
-- Why Formations?
-- The Building Blocks
-- Formation Types
-- The Squad State Machine
-- Adaptive Corridor Movement
-- Authoring Levels with Tiled
-- Detection and the Human Element
-- Designer-Facing Tools
-- Common Problems and Solutions
-- Conclusion
+- Stack Up: Why Formations?
+- Squad leader to Rear Security: Roles and Slots
+- Form Up: Formation Types
+- On My Mark: The Squad State Machine
+- Tight Quarters: Adaptive Corridor Movement
+- Drawing the Floor Plan: Authoring Levels with Tiled
+- Eyes On: Detection and the Human Element
+- Briefing Room: Designer-Facing Tools
+- After-Action Report: Common Problems and Solutions
+- Debrief
 
-## Why Formations?
+<video controls width="100%">
+  <source src="assets/videos/hero-breach-sequence.mp4" type="video/mp4">
+</video>
 
-Squad-based games — RTS titles, tactical shooters, pack AI in racing games — need a group of agents to move and act as a cohesive unit rather than a pile of independent pathfinders that happen to be heading the same direction. A formation gives you that: a shared reference frame (a center point, a facing direction) that individual agents position themselves relative to.
+## Stack Up: Why Formations?
 
-I picked a SWAT breach-and-clear scenario to learn this with, because it forces most of the interesting formation problems to show up on their own: tight single-file movement through corridors, a wider spread when clearing a room, a specific stacked shape at a doorway before entry, a staggered sequence for going through that door. If a formation system handles all of that cleanly, it handles most things a squad-based game would ask of it.
+Formations are structured tactical arrangements of groups. Formations offer a solution if you want an organized crowd layout that keeps its shape when navigating obstacles and other terrain instead of a group of independent pathfinders that just happen to walk in the same direction.
 
-## The Building Blocks
+To tackle this topic I picked a SWAT breach-and-clear scenario to serve as an overarching contextual narrative to give the viewer/user a more intuitive view of what to expect and its application of it.
+This approach also has the added benefit of its real life counterpart also making heavy use of formations when doing its breach-and-clear. From performing a Rolling-T technique narrow and wide to stacking up next to a breach point and then spreading out to the room.
 
-A formation is a list of **slots** — positions expressed *relative* to the formation's own center and facing, rather than in absolute world space:
+## Squad Leader to Rear Security: Roles and Slots
+
+A formation is a list of "slots", slots are relative to the formation in position and orientation instead of being in world space.
 
 ```cpp
 struct FormationSlot
 {
     glm::vec2 localOffset;
     int priority;
-    float facingOffsetDegrees = 0.0f; // relative to the formation's own facing
+    float facingOffsetDegrees = 0.0f;
 };
 ```
-
-`priority` sets breach order (slot 0 enters first); `facingOffsetDegrees` lets a slot watch a different direction than the group as a whole is heading, which matters for movement formations where some agents should be watching the flanks rather than all facing forward.
+"priority" sets breach order
+"facingOffsetDegrees" lets an agent watch a different direction than the group as a whole is heading.
 
 Converting a slot into a world position is a rotation and a translation — rotate the local offset by the formation's current facing angle, add it to the center:
 
@@ -51,63 +56,78 @@ glm::vec2 Formation::GetSlotWorldPosition(int slotIndex, const glm::vec2& center
 }
 ```
 
-That's genuinely most of the core math — the `facingOffsetDegrees` field resolves to world space the same way, just added to the formation's heading angle rather than rotating an offset. Everything interesting about a formation system comes from *what shapes you define* and *when you switch between them*, not from the transform itself, which stays this simple no matter how elaborate the shape gets.
+That's pretty much all the math for relative position. "facingOffsetDegrees" gets resolved the same way, except you add it to the formation's heading angle instead of rotating an offset. The transform stays this simple no matter how complex the formation gets. The interesting part is which shapes you define and when you switch between them.
 
-## Formation Types
+## Form Up: Formation Types
 
-I ended up with a handful of distinct shapes, each suited to a specific moment in a breach.
+At the end of development I had a few distinct shapes, each used in a different context of the breach sequence. Both corridor formations come from the US Army's urban-combat manual, FM 90-10-1 (thats why I spell it as "surpentine").
 
-**Column** is the simplest — a single-file line trailing directly behind the direction of travel, used as a fallback when nothing more specific applies.
+**Surpentine** and **Rolling-T** are the two corridor-movement formations, and the ones I spent the most time on.
 
-**Wall Stack** lines agents up flush against a wall beside a doorway, offset to whichever side the level data specifies, oriented to the door's entry direction — this is the shape the squad holds in while waiting for a breach command.
+- **Surpentine** is used in narrow corridors: the squad leader anchors the front-center, with two agents close behind him, left and right, looking outward. The rest of the squad follows in a column, ending with a rear guard facing backward.
 
-**Room Clear Spread** fans agents across an arc once they're through a door, covering the room rather than bunching in the entryway:
+- **Rolling-T** is used in wide corridors: Two agents move forward and ahead of the squad leader, left and right (the top bar of the "T"), and each covers the *opposite* side of the hallway from the one they are walking on. A squad leader stands behind them (the stem of the "T") and covers the far end of the hallway, looking between the pair. The manual's fourth man provides rear security. My squads are bigger than the manual's four-man team, so the remaining agents trail in a column and the last one acts as the rear guard, facing backward.
+
+![alt text](assets/images/formation_variants.png)
+
+Instead of hard-coding the shape in C++, you can create formations based on squad size with 2 settings for narrow and wide with position and offsets using a small editor. This exports the data into JSON which is later used during runtime.
 
 ```cpp
-Formation Formation::CreateRoomClear(int numAgents, float radius, float angleRangeDegrees)
+const auto& editorSlots = m_formationEditor->GetFormation(squadSize, variant);
+if (!editorSlots.empty())
+{
+    std::vector<glm::vec2> localOffsets;
+    std::vector<float> localRotations;
+    for (const auto& es : editorSlots)
+    {
+        localOffsets.push_back(glm::vec2(-es.offset.y, -es.offset.x));
+        localRotations.push_back(-es.rotationDegrees);
+    }
+    *m_currentFormation = Formation::CreateFromLocalOffsets(localOffsets, localRotations, FormationType::Corridor);
+    AssignFormationSlots();
+    return;
+}
+```
+
+Keeping the exact spacing and angles out of C++ was a something I purposely spend time on to give clearer context of relative positions and rotations (which is important for formations). This made it a lot more intuitive instead of having to make a huge list of magical numbers which are hard to tweak and imagine.
+
+**Wall Stack** lines agents up against the wall besides the breach point. the direction that it stacks on is set in level data. This formation is taken when the squad is close enough to a breach point where they prepare for entry
+
+**Room Clear Spread** fans agents across an arc once they're through a door, covering the room:
+
+```cpp
+Formation Formation::CreateRoomClear(int numAgents, float radius)
 {
     Formation formation(FormationType::RoomClearSpread);
     if (numAgents == 1)
     {
-        formation.m_slots.push_back({ {0.0f, 0.0f}, 0 });
+        formation.m_slots.push_back({{0.0f, 0.0f}, 0});
         return formation;
     }
 
-    float angleRangeRad = glm::radians(angleRangeDegrees);
-    float angleStep = angleRangeRad / (numAgents - 1);
-    float startAngle = -angleRangeRad * 0.5f;
+    float angleStep = glm::pi<float>() / (numAgents - 1);
+    float startAngle = -glm::half_pi<float>();
 
     for (int i = 0; i < numAgents; ++i)
     {
         float angle = startAngle + i * angleStep;
+
         FormationSlot slot;
         slot.localOffset = glm::vec2(std::cos(angle) * radius, std::sin(angle) * radius);
         slot.priority = i;
         formation.m_slots.push_back(slot);
     }
+
     return formation;
 }
 ```
 
-The angle range is tunable rather than fixed at 180° for a concrete reason: a full semicircle pushes the outermost agents directly sideways at the full radius, which clips a wall in a tighter room than the formation was tuned for. Narrowing the range (and the radius) made the spread reliably fit inside smaller rooms, at the cost of slightly less coverage at the edges.
+<!-- PLACEHOLDER: gif/image grid showing the 4 formation shapes from a top-down view - Column, Wall Stack, Room Clear Spread, Rolling T (both variants) - a labeled montage would work well here -->
 
-**Rolling T (Narrow / Wide)** is the corridor-movement formation, and the one I spent the most time on. In a narrow corridor, agents move single-file but alternate their facing left and right down the line — lead watches forward, last watches rear, everyone between splits attention across the two flanks. In a wide corridor, the squad splits into two lanes side by side instead. Rather than hardcoding either shape in C++, I authored both variants' exact offsets and rotations externally through a small formation editor, and convert that data into slots at runtime:
+![Formation types overview](./assets/images/PLACEHOLDER-formation-types.gif)
+*The four formation shapes, top-down: Column, Wall Stack, Room Clear Spread, and Rolling T.*
 
-```cpp
-const auto& editorSlots = m_formationEditor->GetFormation(squadSize, variant);
-std::vector<glm::vec2> localOffsets;
-std::vector<float> localRotations;
-for (const auto& es : editorSlots)
-{
-    localOffsets.push_back(glm::vec2(-es.offset.y, -es.offset.x));
-    localRotations.push_back(-es.rotationDegrees);
-}
-*m_currentFormation = Formation::CreateFromLocalOffsets(localOffsets, localRotations, FormationType::RollingT);
-```
-
-Keeping the exact spacing and angles out of hardcoded C++ mattered for iteration speed specifically — nudging a number in the editor and watching the squad react immediately is a tighter loop than changing a constant and recompiling.
-
-## The Squad State Machine
+## On My Mark: The Squad State Machine
 
 The whole breach sequence is one state machine per squad:
 
@@ -126,17 +146,21 @@ void FormationSquad::Update(const Navmesh& navmesh, float dt)
 }
 ```
 
-The squad travels to a breach point (reshaping its formation to fit the corridor along the way — next section), forms up in a Wall Stack beside the door, and waits in `ReadyToBreach` for an explicit command. On that command, the point man slices the pie — arcing around the door's pivot to peek the room before committing, resolved against the navmesh rather than trusting the raw geometric arc:
+The squad travels to a breach point (reshaping its formation to fit the corridor along the way — next section), forms up in a Wall Stack beside the door, and waits in `ReadyToBreach` for an explicit command. On that command, the squad leader slices the pie — arcing around the door's pivot to peek the room before committing, resolved against the navmesh rather than trusting the raw geometric arc:
 
 ```cpp
 glm::vec2 radialDir = geometry2d::RotateCounterClockwise(m_formationFacing, rad);
 glm::vec2 rawArcPos = m_slicePivot - radialDir * m_sliceRadius;
-glm::vec2 resolvedArcPos = navmesh.FindClosestReachablePoint(pointManBody->GetPosition(), rawArcPos);
+glm::vec2 resolvedArcPos = navmesh.FindClosestReachablePoint(squadLeaderBody->GetPosition(), rawArcPos);
 ```
 
 Then the squad breaches: agents enter one at a time on a short delay, each heading straight for its *own* final Room Clear Spread position rather than funneling through one shared point first — a detail that mattered more than I expected, covered below. Once a room is clear, the squad advances to the next breach point in an ordered sequence, repeating the cycle until the last one is done.
 
-## Adaptive Corridor Movement
+<!-- PLACEHOLDER: gif of a single doorway breach, slow enough to see each state - forming up, the point man's slice-the-pie arc, then the staggered sequential entry -->
+![Breach sequence at a single doorway](./assets/images/PLACEHOLDER-breach-sequence.gif)
+*Forming up, slicing the pie, then staggered entry through a single doorway.*
+
+## Tight Quarters: Adaptive Corridor Movement
 
 The part I'm most satisfied with: the formation shape adapts to the level geometry it's actually moving through. Each frame while traveling, the squad checks whether its center is inside a corridor region and, if so, measures that corridor's width, switching between Rolling T Narrow and Wide based on a tunable threshold:
 
@@ -192,7 +216,12 @@ result.push_back(SnapToCorridorCenterline(p, segDir));
 
 My first version used one fixed direction for the entire centering pass, which worked fine down a straight hallway and broke at every turn — a path bending from a vertical corridor into a horizontal one needs to re-decide which axis counts as "across the hallway" exactly at that turn, not carry the old corridor's orientation past the bend. Deriving direction from the segment itself, rather than from any single global value, fixed it everywhere at once instead of case-by-case.
 
-## Authoring Levels with Tiled
+<!-- PLACEHOLDER: gif showing the squad walking from a wide corridor into a narrow one (or vice versa) and visibly switching from Rolling T Wide to Narrow mid-walk, ideally with the corridor region polygons debug-drawn so the width measurement is visible -->
+
+![Corridor width switching](./assets/images/PLACEHOLDER-corridor-switch.gif)
+*The squad reshaping from Rolling T Wide to Narrow as the corridor narrows, with corridor regions debug-drawn.*
+
+## Drawing the Floor Plan: Authoring Levels with Tiled
 
 Levels are built in [Tiled](https://www.mapeditor.org/) rather than a custom in-engine editor I started with and later abandoned — a grid tool built for exactly this is faster to iterate in than anything I'd build myself in the time available. Three tile layers (`Floor`, `Corridor`, `Walls`) define walkable space and obstacles; a point-object layer carries breach points (entry direction, stack side, visit order) and spawn locations, each read out as plain custom properties:
 
@@ -234,7 +263,12 @@ for (int col = 0; col < mapWidth; ++col)
 
 It's not an optimal rectangle decomposition — that's a more involved problem on its own — but on my current level it took the floor layer from 15,674 raw tiles down to 10 rectangles, walls from 1,492 tiles to 21 rectangles, and the corridor layer from 9,454 tiles to just 4. Beyond the navmesh-generation speedup, that's the fix for the splitting: a region that's one rectangle, or a small handful of them, has no internal seam for a union step to get wrong in the first place.
 
-## Detection and the Human Element
+<!-- PLACEHOLDER: screenshot of the actual Tiled editor with the Floor/Corridor/Walls layers visible, plus a BreachPoint object's custom properties panel showing dirX/dirY/order -->
+
+![Tiled level editor](./assets/images/PLACEHOLDER-tiled-editor.png)
+*The level authored in Tiled: Floor, Corridor, and Walls layers, with a BreachPoint object's custom properties visible.*
+
+## Eyes On: Detection and the Human Element
 
 Formation movement alone doesn't make a breach feel tactical — it needs something to react to.
 
@@ -279,6 +313,10 @@ for (auto [viewerEntity, cone, viewerBody] : ecs.Registry.view<VisionCone, physi
 
 Having already hit the self-intersecting raycast bug once with vision cones, fog of war reuses the exact same radius-offset fix from the start rather than rediscovering it. The unseen-area mesh only gets rebuilt on frames where at least one cell actually changed state (`anyCellChangedState`), rather than every frame regardless — a small but free optimization, since most frames nothing new is revealed.
 
+<!-- PLACEHOLDER: gif showing the squad advancing with vision cones debug-drawn, fog of war peeling back as they move, and a cone flashing red on spotting an enemy -->
+![Vision cones and fog of war](./assets/images/PLACEHOLDER-vision-fog.gif)
+*Vision cones sweeping as fog of war clears, with a cone turning red the moment it spots an enemy.*
+
 **Arrests and roles.** Once spotted, the squad can peel a teammate off to arrest an enemy, removing that agent from the active roster for the rest of the room:
 
 ```cpp
@@ -304,9 +342,13 @@ static const char* SlotToRoleName(int slotIndex, int squadSize)
 
 Which means an arrest, which shrinks the roster and re-indexes everyone, gets correct role promotion for free. If the agent in slot 1 (Breacher) is pulled off to make an arrest, the remaining agents are reindexed from 0, and whoever was slot 2 becomes the new slot 1 — picking up the Breacher label automatically, with no explicit "who's next" logic anywhere.
 
-## Designer-Facing Tools
+## Briefing Room: Designer-Facing Tools
 
 A live ImGui panel exposes squad speed, breach timing, corridor thresholds, and slice angle/duration as sliders that apply instantly, alongside buttons for every squad command and toggles for each debug layer.
+
+<!-- PLACEHOLDER: screenshot of the actual ImGui panel - squad state, formation type, the Squad Settings sliders, and the command buttons all visible in one shot -->
+![ImGui tuning panel](./assets/images/PLACEHOLDER-imgui-panel.png)
+*The live tuning panel: squad state, current formation, every tunable slider, and squad commands.*
 
 A checkpoint system snapshots the full roster, positions, and formation the moment the squad reaches `ReadyToBreach`:
 
@@ -327,7 +369,7 @@ void FormationSquad::SaveReadyToBreachCheckpoint()
 
 This is what lets one button rewind *just the current room's attempt*. Deciding what "rewind" should actually mean once an arrest has happened took a moment of real thought: it could restore only positions and leave the roster permanently smaller (treating an arrest as irreversible attrition even on retry), it could refuse to restore at all once an arrest has happened (flagging the checkpoint stale), or it could fully undo the arrest — bringing the agent back and reverting the enemy's cuffed state — so a retry is a genuine clean slate. I went with the third option, since "retry this room" reads to a player as "as if that attempt never happened," which an arrest is very much part of. The detail that makes it possible is storing the full agent list in the checkpoint rather than only positions — a checkpoint that only remembered positions would restore the wrong roster size the instant an arrest had happened since it was saved.
 
-## Common Problems and Solutions
+## After-Action Report: Common Problems and Solutions
 
 **Agents piling up at the doorway.** My first breach sequence sent every releasing agent toward the same single point a short distance through the door, meaning to let them spread out once inside. In practice this meant agents converging on one coordinate and jamming against each other in the doorway — whoever was released last had to shove through a growing crowd, and in a narrow door simply couldn't. Fixed by computing the full Room Clear Spread *before* releasing anyone, so each agent could be sent directly to its own final slot as it's released.
 
@@ -339,7 +381,7 @@ This is what lets one button rewind *just the current room's attempt*. Deciding 
 
 **Two divergent copies of "spawn a squad."** Once restart existed, I had one spawn function from startup and a second, separately-written one for restarts, and they drifted apart in agent speed and vision parameters. A restart would silently create a second full set of agents on top of the still-alive originals; the overlapping colliders got violently flung apart by collision resolution the instant physics ran, which looked exactly like agents vanishing a frame after spawning. Fixed by making exactly one function define what spawning a squad means, called identically from startup and every restart path.
 
-## Conclusion
+## Debrief
 
 Formations turn out to be mostly discipline in a coordinate transform — local offsets, a shared center and facing, and judgment about when to swap which shape is active — rather than anything mathematically deep. The real work was everywhere around that core: making the group's movement respect the terrain, giving it something to react to, keeping squad-composition changes like an arrest coherent with role assignment and checkpointing instead of fighting them, and making the whole thing legible enough that someone other than me could sit down and immediately understand what it was doing.
 
