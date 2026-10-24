@@ -2,6 +2,8 @@
 layout: default
 ---
 
+{% raw %}
+
 # Adaptive Squad Formations for Breach-and-Clear AI
 
 I'm a 3rd year student and Breda University of Applied Sciences, my name is Tijn Flinterman and this blog post covers my journey through AI formations, What it is, how I made it and how I used it to make my SWAT-style breach-and-clear system in C++. 
@@ -397,3 +399,5 @@ A few resources that helped shape the tactical side of this project:
 - [FM 90-10-1, An Infantryman's Guide to Combat in Built-Up Areas](http://pdf.textfiles.com/manuals/MILITARY/united_states_army_fm_90-10x1%20-%2012_may_1993%20-%20part09.pdf) (pages 6, 10–18) — US Army field manual covering room-clearing fundamentals.
 
 ![Buas_Logo](./assets/images/Logo_BUas_Black.png)
+
+{% endraw %}
