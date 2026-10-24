@@ -93,7 +93,7 @@ if (!editorSlots.empty())
 
 Keeping the exact spacing and angles out of C++ was a something I purposely spend time on to give clearer context of relative positions and rotations (which is important for formations). This made it a lot more intuitive instead of having to make a huge list of magical numbers which are hard to tweak and imagine.
 
-**Wall Stack** lines agents up against the wall besides the breach point. the direction that it stacks on is set in level data. This formation is taken when the squad is close enough to a breach point where they prepare for entry
+**Wall Stack** lines agents up against the wall besides the breach point. The direction that it stacks on is set in level data. This formation is taken when the squad is close enough to a breach point where they prepare to breach.
 
 **Room Clear Spread** fans agents across an arc once they're through a door, covering the room:
 
@@ -124,10 +124,9 @@ Formation Formation::CreateRoomClear(int numAgents, float radius)
 }
 ```
 
-<!-- PLACEHOLDER: gif/image grid showing the 4 formation shapes from a top-down view - Column, Wall Stack, Room Clear Spread, Rolling T (both variants) - a labeled montage would work well here -->
+![Formation types overview](./assets/images/formation-types.gif)
 
-![Formation types overview](./assets/images/PLACEHOLDER-formation-types.gif)
-*The four formation shapes, top-down: Column, Wall Stack, Room Clear Spread, and Rolling T.*
+*The four formation shapes, top-down: Surpentine and Rolling-T, Room Clear Spread, Wall Stack.*
 
 ## On My Mark: The Squad State Machine
 
@@ -148,7 +147,9 @@ void FormationSquad::Update(const Navmesh& navmesh, float dt)
 }
 ```
 
-The squad travels to a breach point (reshaping its formation to fit the corridor along the way — next section), forms up in a Wall Stack beside the door, and waits in `ReadyToBreach` for an explicit command. On that command, the squad leader slices the pie — arcing around the door's pivot to peek the room before committing, resolved against the navmesh rather than trusting the raw geometric arc:
+The squad travels to a breach point using surpentine or rolling-T dependant on the corridor width, forms up in a Wall Stack beside the door to keep clear from enemies within the room, and waits for the breach command. On that command, the squad leader slices the pie sweeping the room to get as much vision of the room before going in.
+
+The code for "Slicing the pie":
 
 ```cpp
 glm::vec2 radialDir = geometry2d::RotateCounterClockwise(m_formationFacing, rad);
@@ -156,11 +157,11 @@ glm::vec2 rawArcPos = m_slicePivot - radialDir * m_sliceRadius;
 glm::vec2 resolvedArcPos = navmesh.FindClosestReachablePoint(squadLeaderBody->GetPosition(), rawArcPos);
 ```
 
-Then the squad breaches: agents enter one at a time on a short delay, each heading straight for its *own* final Room Clear Spread position rather than funneling through one shared point first — a detail that mattered more than I expected, covered below. Once a room is clear, the squad advances to the next breach point in an ordered sequence, repeating the cycle until the last one is done.
+After slicing the pie, the squad breaches. One at a time the agents flood the room, creating a semicircle arc to clear the room for enemies. If the room is clear or the enemies are arrested the agents move to the next breach point, waiting for the next command.
 
-<!-- PLACEHOLDER: gif of a single doorway breach, slow enough to see each state - forming up, the point man's slice-the-pie arc, then the staggered sequential entry -->
-![Breach sequence at a single doorway](./assets/images/PLACEHOLDER-breach-sequence.gif)
-*Forming up, slicing the pie, then staggered entry through a single doorway.*
+![Breach sequence at a single doorway](./assets/images/breach-sequence.gif)
+
+*Forming up, slicing the pie, then entry through the breachpoint.*
 
 ## Tight Quarters: Adaptive Corridor Movement
 
