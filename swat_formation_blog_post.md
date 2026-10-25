@@ -20,6 +20,7 @@ I'm a 3rd year student and Breda University of Applied Sciences, my name is Tijn
 - After-Action Report: Common Problems and Solutions
 - Debrief
 
+--- 
 <video controls width="100%">
   <source src="assets/videos/hero-breach-sequence.mp4" type="video/mp4">
 </video>
@@ -70,6 +71,7 @@ At the end of development I had a few distinct shapes, each used in a different 
 
 - **Rolling-T** is used in wide corridors: Two agents move forward and ahead of the squad leader, left and right (the top bar of the "T"), and each covers the *opposite* side of the hallway from the one they are walking on. A squad leader stands behind them (the stem of the "T") and covers the far end of the hallway, looking between the pair. The manual's fourth man provides rear security. My squads are bigger than the manual's four-man team, so the remaining agents trail in a column and the last one acts as the rear guard, facing backward.
 
+--- 
 ![alt text](assets/images/formation_variants.png)
 
 Instead of hard-coding the shape in C++, you can create formations based on squad size with 2 settings for narrow and wide with position and offsets using a small editor. This exports the data into JSON which is later used during runtime.
@@ -123,7 +125,7 @@ Formation Formation::CreateRoomClear(int numAgents, float radius)
     return formation;
 }
 ```
-
+--- 
 ![Formation types overview](./assets/images/formation-types.gif)
 
 *The four formation shapes, top-down: Surpentine and Rolling-T, Room Clear Spread, Wall Stack.*
@@ -159,37 +161,38 @@ glm::vec2 resolvedArcPos = navmesh.FindClosestReachablePoint(squadLeaderBody->Ge
 
 After slicing the pie, the squad breaches. One at a time the agents flood the room, creating a semicircle arc to clear the room for enemies. If the room is clear or the enemies are arrested the agents move to the next breach point, waiting for the next command.
 
+--- 
 ![Breach sequence at a single doorway](./assets/images/breach-sequence.gif)
 
 *Forming up, slicing the pie, then entry through the breachpoint.*
 
 ## Tight Quarters: Adaptive Corridor Movement
 
-The part I'm most satisfied with: the formation shape adapts to the level geometry it's actually moving through. Each frame while traveling, the squad checks whether its center is inside a corridor region and, if so, measures that corridor's width, switching between Rolling T Narrow and Wide based on a tunable threshold:
+To make the squad be able to switch between surpentine and rolling-T on the fly I needed a way to detect the width of a corridor to decide which formation it should take. So when the squad is in inside a corridor, it measures the width of said corridor and based on a setting value it will switch formations based on an adjustable width :
 
 ```cpp
 void FormationSquad::UpdateFormationShapeForTerrain()
 {
     bool inCorridor = IsInCorridor(m_formationCenter);
     FormationEditor::Variant variant = FormationEditor::Wide;
-
     if (inCorridor)
     {
         float width = MeasureCorridorWidth(m_formationCenter);
         variant = (width < m_narrowWidthThreshold) ? FormationEditor::Narrow : FormationEditor::Wide;
     }
 
-    if (m_currentFormation->GetType() == FormationType::RollingT && variant == m_currentRollingTVariant)
-        return; // already the right shape, nothing to do
+    if (m_currentFormation->GetType() == desired && variant == m_currentRollingTVariant) return;
 
-    // ...rebuild the formation from the externally-authored Rolling T slot data for this variant
+    m_currentRollingTVariant = variant;
+
+    // ...rebuild the formation slot data for this variant
 }
 ```
 
-The path itself gets the same treatment, not just the formation shape — raw navmesh paths are resampled into smaller steps, and each point snapped to the centerline of whichever corridor region it falls inside:
+The same idea is used for centering the formation when they navigate through corridors, it finds the centerline by measuring the distance between left and right and setting the overall formation target along that path :
 
 ```cpp
-glm::vec2 FormationSquad::SnapToCorridorCenterline(const glm::vec2& pos, const glm::vec2& travelDirection) const
+glm::vec2 FormationSquad::SnapToCorridorCenterline(const glm::vec2& pos) const
 {
     for (const auto& region : m_corridorRegions)
     {
@@ -197,36 +200,62 @@ glm::vec2 FormationSquad::SnapToCorridorCenterline(const glm::vec2& pos, const g
 
         RegionBounds b = ComputeBounds(region);
         glm::vec2 result = pos;
-
-        if (std::abs(travelDirection.x) >= std::abs(travelDirection.y))
-            result.y = (b.minY + b.maxY) * 0.5f; // moving along X -> center across Y
+        if (b.Width() < b.Height())
+            result.x = (b.minX + b.maxX) * 0.5f;
         else
-            result.x = (b.minX + b.maxX) * 0.5f; // moving along Y -> center across X
-
+            result.y = (b.minY + b.maxY) * 0.5f;
         return result;
     }
     return pos;
 }
 ```
 
-The important detail is `travelDirection` is computed **per path segment**, not once for the whole path:
+--- 
+![Corridor width switching](assets/images/snap-to-center.gif)
+
+*The squad reshaping from surpentine to rolling-T as the corridor widens, with corridor center snapping.*
+
+
+When pathfinding, the "path" it gives back only gives me a few points, and the lines between them can drift toward a wall. So I add more points along the path and snap each one to the middle of the corridor :
 
 ```cpp
-glm::vec2 segDir = (segLen > 0.0001f) ? (segDelta / segLen) : lastDir;
-// ...
-result.push_back(SnapToCorridorCenterline(p, segDir));
+std::vector<glm::vec2> FormationSquad::ResampleAndSnapPath(const std::vector<glm::vec2>& rawPath) const
+{
+    if (rawPath.size() < 2) return rawPath;
+
+    std::vector<glm::vec2> result;
+    result.push_back(SnapToCorridorCenterline(rawPath.front()));
+
+    for (size_t i = 0; i + 1 < rawPath.size(); ++i)
+    {
+        glm::vec2 a = rawPath[i];
+        glm::vec2 b = rawPath[i + 1];
+        float segLen = glm::distance(a, b);
+        int steps = std::max(1, static_cast<int>(segLen / m_centerlineResampleSpacing));
+
+        for (int s = 1; s <= steps; ++s)
+        {
+            float t = static_cast<float>(s) / steps;
+            result.push_back(SnapToCorridorCenterline(glm::mix(a, b, t)));
+        }
+    }
+    return result;
+}
 ```
 
-My first version used one fixed direction for the entire centering pass, which worked fine down a straight hallway and broke at every turn — a path bending from a vertical corridor into a horizontal one needs to re-decide which axis counts as "across the hallway" exactly at that turn, not carry the old corridor's orientation past the bend. Deriving direction from the segment itself, rather than from any single global value, fixed it everywhere at once instead of case-by-case.
+The first version took only one direction across the hallway for centering. This was good enough for the early stages of development when all my hallways were vertical, but it was useless when moving to a horizontal one.
+The squad had to find out which direction would be considered "across the hallway" so it now checks the segment "shape" itself.
 
-<!-- PLACEHOLDER: gif showing the squad walking from a wide corridor into a narrow one (or vice versa) and visibly switching from Rolling T Wide to Narrow mid-walk, ideally with the corridor region polygons debug-drawn so the width measurement is visible -->
+--- 
+![alt text](assets/images/snap_to_center_corner.gif)
 
-![Corridor width switching](./assets/images/PLACEHOLDER-corridor-switch.gif)
-*The squad reshaping from Rolling T Wide to Narrow as the corridor narrows, with corridor regions debug-drawn.*
+*Center snapping working horizontally and vertically.*
 
 ## Drawing the Floor Plan: Authoring Levels with Tiled
 
-Levels are built in [Tiled](https://www.mapeditor.org/) rather than a custom in-engine editor I started with and later abandoned — a grid tool built for exactly this is faster to iterate in than anything I'd build myself in the time available. Three tile layers (`Floor`, `Corridor`, `Walls`) define walkable space and obstacles; a point-object layer carries breach points (entry direction, stack side, visit order) and spawn locations, each read out as plain custom properties:
+Levels are built in [Tiled](https://www.mapeditor.org/) instead of a custom in-engine editor I started with and later abandoned. I felt like using this was a lot better for the time investment since I would have been just making a worse version of tiled. The level is spread out in ("Floor", "Corridor", "Walls") to differentiate walkable and non-walkable. 
+
+A point-object layer is used for breach points (entry direction, stack side, visit order) and spawn locations for enemies and agents, breach points read out as plain custom properties:
 
 ```cpp
 TiledBreachPoint bp;
@@ -237,38 +266,62 @@ bp.direction = glm::normalize(glm::vec2(
 bp.order = props.count("order") ? static_cast<int>(props["order"]) : static_cast<int>(result.breachPoints.size());
 ```
 
-The one piece worth real attention is how tile data becomes navmesh geometry. My first version created one polygon per filled tile and relied on the navmesh generator's polygon-union step to stitch them back into a single walkable region — and on my current level that means tens of thousands of individual tiles. It mostly worked, but meant a large amount of unnecessary unioning, and occasionally left a region looking visibly split even though every tile was painted correctly in Tiled. I replaced this with a greedy merge: grow each region right as far as it can, then down as far as the full width stays filled, repeat until every filled cell belongs to some rectangle:
+Agents and enemies are simply just stored as 2D vectors :
+
+```cpp
+std::vector<glm::vec2> agentSpawns;
+std::vector<glm::vec2> enemySpawns;
+```
+
+One improvement I made was merging loose tiles into rectangles for better navmesh generation. My first version created one polygon per filled tile and relied on the navmesh generator's polygon-union step to stitch them back into a single walkable region. But when the map expanded to be thousands of tiles big, for a higher resolution map, this became an issue.
+
+To resolve the problem I replaced this with a greedy merge: grow each region right as far as it can, then down as far as the full width stays filled, repeat until every filled cell belongs to some rectangle.
 
 ```cpp
 for (int row = 0; row < mapHeight; ++row)
-for (int col = 0; col < mapWidth; ++col)
 {
-    if (!grid[row][col] || visited[row][col]) continue;
-
-    int width = 1;
-    while (col + width < mapWidth && grid[row][col + width] && !visited[row][col + width]) ++width;
-
-    int height = 1;
-    bool canExtend = true;
-    while (canExtend && row + height < mapHeight)
+    for (int col = 0; col < mapWidth; ++col)
     {
-        for (int c = col; c < col + width; ++c)
-            if (!grid[row + height][c] || visited[row + height][c]) { canExtend = false; break; }
-        if (canExtend) ++height;
+        if (!grid[row][col] || visited[row][col]) continue;
+
+        int width = 1;
+        while (col + width < mapWidth && grid[row][col + width] && !visited[row][col + width]) ++width;
+
+        int height = 1;
+        bool canExtend = true;
+        while (canExtend && row + height < mapHeight)
+        {
+            for (int c = col; c < col + width; ++c)
+            {
+                if (!grid[row + height][c] || visited[row + height][c])
+                {
+                    canExtend = false;
+                    break;
+                }
+            }
+            if (canExtend) ++height;
+        }
+
+        for (int r = row; r < row + height; ++r)
+        {
+            for (int c = col; c < col + width; ++c) 
+            {
+                visited[r][c] = true;
+            }
+        }
+            
+        result.push_back(MakeRectPolygon(col, row, width, height, mapWidth, mapHeight, unitsPerTile));
     }
-
-    for (int r = row; r < row + height; ++r)
-        for (int c = col; c < col + width; ++c) visited[r][c] = true;
-
-    result.push_back(MakeRectPolygon(col, row, width, height, mapWidth, mapHeight, unitsPerTile));
 }
 ```
 
-It's not an optimal rectangle decomposition — that's a more involved problem on its own — but on my current level it took the floor layer from 15,674 raw tiles down to 10 rectangles, walls from 1,492 tiles to 21 rectangles, and the corridor layer from 9,454 tiles to just 4. Beyond the navmesh-generation speedup, that's the fix for the splitting: a region that's one rectangle, or a small handful of them, has no internal seam for a union step to get wrong in the first place.
+Improvement numbers:
+- Floor layer from 15,674 tiles to 10 rectangles
+- Walls layer from 1,492 tiles to 21 rectangles
+- Corridor layer from 9,454 tiles to 4 rectangles
 
-<!-- PLACEHOLDER: screenshot of the actual Tiled editor with the Floor/Corridor/Walls layers visible, plus a BreachPoint object's custom properties panel showing dirX/dirY/order -->
-
-![Tiled level editor](./assets/images/PLACEHOLDER-tiled-editor.png)
+--- 
+![Tiled level editor](assets/images/tiled-editor.png)
 *The level authored in Tiled: Floor, Corridor, and Walls layers, with a BreachPoint object's custom properties visible.*
 
 ## Eyes On: Detection and the Human Element
@@ -323,7 +376,7 @@ Having already hit the self-intersecting raycast bug once with vision cones, fog
 **Arrests and roles.** Once spotted, the squad can peel a teammate off to arrest an enemy, removing that agent from the active roster for the rest of the room:
 
 ```cpp
-bee::Entity arrestingAgent = m_swatSquad->GetAgents().back();
+entt::entity arrestingAgent = m_swatSquad->GetAgents().back();
 if (m_swatSquad->RemoveAgent(arrestingAgent))
 {
     ecs.Registry.emplace<ArrestingAgent>(arrestingAgent, nearestEnemy);
@@ -359,7 +412,7 @@ A checkpoint system snapshots the full roster, positions, and formation the mome
 void FormationSquad::SaveReadyToBreachCheckpoint()
 {
     m_readyCheckpoint.agents = m_agents; // the full roster, not just positions
-    for (bee::Entity agentEntity : m_agents)
+    for (entt::entity agentEntity : m_agents)
     {
         auto* body = Engine.ECS().Registry.try_get<physics::Body>(agentEntity);
         m_readyCheckpoint.agentPositions.push_back(body ? body->GetPosition() : glm::vec2(0, 0));
