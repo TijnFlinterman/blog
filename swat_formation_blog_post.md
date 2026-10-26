@@ -466,21 +466,19 @@ None of this is implemented yet, but it's a clear list of what I'd tackle next i
 
 **A squad that could softlock on an unreachable position.** The Room Clear Spread's outer slots sit near the full radius at a steep angle; in a tighter room than tuned for, that position can land outside the walkable navmesh, and that one agent's pathfinding silently fails. Since the squad only advances once every agent reports being in position, this could hang the whole mission on one agent that would never arrive. A timeout — proceed anyway after a few seconds, with a logged warning. This turned a hard failure into a fixable and easily diagnosable one.
 
-**Fog of war.** This was the most expensive feature I built, and I had to fix it three times. The fog splits the walkable area into a grid of small cells, and a cell stays revealed once an agent's vision cone has seen it.
+**Fog of war.** This was the most expensive feature I built, and I had to fix it twice. The fog splits the walkable area into a grid of small cells, and a cell stays revealed once an agent's vision cone has seen it.
 
-First, every cell was its own entity with its own mesh, so the renderer made thousands of draw calls per frame. The profiler showed **405 ms in the renderer alone**. I now combine all unseen cells into one mesh on a single entity, so the fog is one draw call, and I only rebuild that mesh when a cell is revealed. The renderer now takes **1.14 ms**.
+First, a CPU profile showed `FogOfWar::Update` using **93.6% of all CPU time**, almost all of it in the physics raycast that checks whether each cell is visible. I replaced the raycast with a line-of-sight walk across the fog grid itself, where a missing cell counts as a wall, and I only update the fog ten times a second. That brought it down to **35.4%**.
 
 ![CPU profile before: FogOfWar::Update at 93.6% of CPU time, mostly inside the physics raycast](assets/images/fog_profile_1_raycast.png)
 
 *Before: the raycast per cell takes almost all of the CPU time.*
 
-Second, a CPU profile showed `FogOfWar::Update` using **93.6% of all CPU time**, almost all of it in the physics raycast that checks whether each cell is visible. I replaced the raycast with a line-of-sight walk across the fog grid itself, where a missing cell counts as a wall, and I only update the fog ten times a second. That brought it down to **35.4%**.
-
 ![CPU profile after the grid line of sight: FogOfWar::Update at 35.4%, mostly hash map lookups](assets/images/fog_profile_2_hashmap.png)
 
 *After the line-of-sight walk: the cost moves to hash map lookups.*
 
-Third, the profile showed the cost had moved: most of what was left was hash map lookups, because I looked up every cell around every agent in a `unordered_map`. Switching to a flat array indexed by cell coordinate brought it down to **about 7%**. What remains is mostly rebuilding the mesh when new cells are revealed.
+Second, a new profile showed the cost had moved: most of what was left was hash map lookups, because I looked up every cell around every agent in an `unordered_map`. Switching to a flat array indexed by cell coordinate brought it down to **about 7%**. What remains is mostly rebuilding the mesh when new cells are revealed.
 
 ![CPU profile after the flat array: FogOfWar::Update at about 7%](assets/images/fog_profile_3_flat_array.png)
 
