@@ -328,52 +328,64 @@ Improvement numbers:
 
 Formation movement alone doesn't make a breach feel tactical — it needs something to react to.
 
-**Vision cones.** Each agent carries a `VisionCone` (range, field of view, current target); every frame it checks nearby detectable entities for angle and range, then fires a *single* raycast to confirm line of sight, rather than sweeping many rays to approximate the same check:
+**Vision cones** Each agent carries a `VisionCone` (range, field of view, current target); every frame it checks nearby detectable entities for angle and range, then fires a single raycast to confirm line of sight:
 
 ```cpp
 float angle = glm::acos(glm::clamp(glm::dot(cone.facing, dirToTarget), -1.f, 1.f));
 if (angle > halfFovRad) continue; // outside the FOV wedge
 
 const auto& hit = physicsSystem.RaycastGetNearest(rayStart, dirToTarget);
-bool blocked = hit.has_value() && hit->m_hitEntity != targetEntity
-               && hit->m_rayDistance < (dist - startOffset - 0.1f);
+bool blocked = false;
+if (hit.has_value() && hit->m_rayDistance < (dist - startOffset - 0.1f))
+{
+    auto* hitBody = ecs.Registry.try_get<physics::Body>(hit->m_hitEntity);
+    blocked = !hitBody || hitBody->GetType() == physics::Body::Static;
+}
+
 if (blocked) continue;
 
 cone.hasTarget = true;
-cone.facing = dirToTarget; // turn to actually look at what was spotted
+cone.detectedTarget = targetEntity;
+cone.lastKnownPosition = targetPos;
+
+if (!ecs.Registry.any_of<Spotted>(targetEntity))
+{
+    ecs.Registry.emplace<Spotted>(targetEntity); // mark enemy as "Spotted"
+}
 ```
 
-`rayStart` is offset outward from the agent's own position by its collider radius before the raycast is even fired — starting the ray exactly at an agent's own center meant it would immediately hit its own collider at `t = radius`, before ever reaching a real target, silently failing every detection check. More on that below.
-
-**Fog of war.** Rather than tracking visibility per enemy, I track it over a grid of fixed-size cells laid out across the walkable regions, each marked `everSeen` once any agent's vision cone confirms it:
+**Fog of war** Rather than tracking visibility per enemy, I track it over a grid of fixed-size cells laid out across the walkable regions, each marked `everSeen` once any agent's vision cone confirms it:
 
 ```cpp
 for (auto [viewerEntity, cone, viewerBody] : ecs.Registry.view<VisionCone, physics::Body>().each())
 {
-    glm::ivec2 centerCoord = WorldToCellCoord(viewerBody.GetPosition());
     int cellRadius = static_cast<int>(std::ceil(cone.range / m_cellSize)) + 1;
+    glm::ivec2 centerCoord = WorldToCellCoord(eyePos);
 
     for (int dy = -cellRadius; dy <= cellRadius; ++dy)
     for (int dx = -cellRadius; dx <= cellRadius; ++dx)
     {
         // ...angle + range check against the cell center, same shape as the vision cone check above
 
-        const vec2 rayStart = eyePos + dir * startOffset; // same self-intersection fix as vision cones
+        const vec2 rayStart = eyePos + dir * startOffset;
         auto hit = physicsSystem.RaycastGetNearest(rayStart, dir);
-        if (hit.has_value() && hit->m_rayDistance < (dist - startOffset - 0.1f)) continue;
+        bool blocked = hit.has_value() && hit->m_rayDistance < (dist - startOffset - 0.1f);
+        if (blocked) continue;
 
         cell.everSeen = true;
+        anyCellChangedState = true;
     }
 }
 ```
 
-Having already hit the self-intersecting raycast bug once with vision cones, fog of war reuses the exact same radius-offset fix from the start rather than rediscovering it. The unseen-area mesh only gets rebuilt on frames where at least one cell actually changed state (`anyCellChangedState`), rather than every frame regardless — a small but free optimization, since most frames nothing new is revealed.
+The unseen-area mesh only gets rebuilt on frames where at least one cell actually changed state `anyCellChangedState`, a small optimization, since most frames nothing new is revealed.
 
-<!-- PLACEHOLDER: gif showing the squad advancing with vision cones debug-drawn, fog of war peeling back as they move, and a cone flashing red on spotting an enemy -->
-![Vision cones and fog of war](./assets/images/PLACEHOLDER-vision-fog.gif)
+
+![Vision cones and fog of war](./assets/images/vision-fog.gif)
+
 *Vision cones sweeping as fog of war clears, with a cone turning red the moment it spots an enemy.*
 
-**Arrests and roles.** Once spotted, the squad can peel a teammate off to arrest an enemy, removing that agent from the active roster for the rest of the room:
+**Arrests and roles** Once spotted, a teammate leaves the squad to arrest an enemy, removing that agent from the squad for the rest of the rooms and formations:
 
 ```cpp
 entt::entity arrestingAgent = m_swatSquad->GetAgents().back();
@@ -384,62 +396,99 @@ if (m_swatSquad->RemoveAgent(arrestingAgent))
 }
 ```
 
-Roles (Point Man, Breacher, Support, Rear Guard) aren't stored per agent — they're read off current slot index relative to squad size:
+Roles like Squad Leader, Breacher, Support, Rear Guard are stored in "slotIndex" relative to squad size:
 
 ```cpp
 static const char* SlotToRoleName(int slotIndex, int squadSize)
 {
-    if (slotIndex == 0) return "Point Man";
-    if (slotIndex == 1) return "Breacher";
-    if (slotIndex == squadSize - 1) return "Rear Guard";
-    return "Support";
+	if (slotIndex == 0) return "Squad Leader";
+	if (slotIndex == 1) return "Breacher";
+	if (slotIndex == squadSize - 1) return "Rear Guard";
+	return "Support";
 }
 ```
 
-Which means an arrest, which shrinks the roster and re-indexes everyone, gets correct role promotion for free. If the agent in slot 1 (Breacher) is pulled off to make an arrest, the remaining agents are reindexed from 0, and whoever was slot 2 becomes the new slot 1 — picking up the Breacher label automatically, with no explicit "who's next" logic anywhere.
+This means an arrest, which shrinks the roster and re-indexes everyone, assigns correct role for free. If the agent in slot 1 (Breacher) is pulled off to make an arrest, the remaining agents are re-indexed from 0, and whoever was slot 2 becomes the new slot 1, picking up the Breacher label automatically, with no explicit "who's next" logic anywhere. The rear guard is always the last in the squad, the one with the highest `slotIndex`.
 
 ## Briefing Room: Designer-Facing Tools
 
-A live ImGui panel exposes squad speed, breach timing, corridor thresholds, and slice angle/duration as sliders that apply instantly, alongside buttons for every squad command and toggles for each debug layer.
+For usability, I made a ImGui panel exposes squad speed, breach timing, corridor thresholds, and slice angle/duration as sliders that apply instantly, alongside buttons for every squad command and toggles for each debug layer.
 
-<!-- PLACEHOLDER: screenshot of the actual ImGui panel - squad state, formation type, the Squad Settings sliders, and the command buttons all visible in one shot -->
-![ImGui tuning panel](./assets/images/PLACEHOLDER-imgui-panel.png)
+![ImGui tuning panel](./assets/images/imgui-panel.png)
+
 *The live tuning panel: squad state, current formation, every tunable slider, and squad commands.*
 
-A checkpoint system snapshots the full roster, positions, and formation the moment the squad reaches `ReadyToBreach`:
+A checkpoint system stores the full roster, positions, and formation the moment the squad reaches `ReadyToBreach`:
 
 ```cpp
 void FormationSquad::SaveReadyToBreachCheckpoint()
 {
-    m_readyCheckpoint.agents = m_agents; // the full roster, not just positions
-    for (entt::entity agentEntity : m_agents)
+    auto& ecs = Engine.ECS();
+    m_readyCheckpoint.agents = m_agents;
+    m_readyCheckpoint.agentPositions.clear();
+
+    for (bee::Entity agentEntity : m_agents)
     {
-        auto* body = Engine.ECS().Registry.try_get<physics::Body>(agentEntity);
+        auto* body = ecs.Registry.try_get<physics::Body>(agentEntity);
         m_readyCheckpoint.agentPositions.push_back(body ? body->GetPosition() : glm::vec2(0, 0));
     }
+
     m_readyCheckpoint.formation = std::make_unique<Formation>(*m_currentFormation);
+    m_readyCheckpoint.formationCenter = m_formationCenter;
+    m_readyCheckpoint.formationFacing = m_formationFacing;
     m_readyCheckpoint.breachPointIndex = m_currentBreachPointIndex;
     m_hasCheckpoint = true;
 }
 ```
 
-This is what lets one button rewind *just the current room's attempt*. Deciding what "rewind" should actually mean once an arrest has happened took a moment of real thought: it could restore only positions and leave the roster permanently smaller (treating an arrest as irreversible attrition even on retry), it could refuse to restore at all once an arrest has happened (flagging the checkpoint stale), or it could fully undo the arrest — bringing the agent back and reverting the enemy's cuffed state — so a retry is a genuine clean slate. I went with the third option, since "retry this room" reads to a player as "as if that attempt never happened," which an arrest is very much part of. The detail that makes it possible is storing the full agent list in the checkpoint rather than only positions — a checkpoint that only remembered positions would restore the wrong roster size the instant an arrest had happened since it was saved.
+This is what lets one button rewind *just the current room's attempt*.
+
+**Designer feedback** I sat down with a system designer and talked through the project with fresh eyes. The biggest takeaway wasn't a specific feature request, it was that how much control a system should expose, and in what shape, depends entirely on who you're building it for. That means actually looking it up, asking, or putting yourself in their shoes, rather than guessing at what feels right to a programmer.
+
+A few concrete things came out of that conversation:
+
+- The formation editor should label slots by name, not number. Reasoning about "the left flanker" shouldn't require remembering that's slot 2.
+- A proper pause/scrub control over time would be more valuable than most of the discrete squad commands I built (move to breach, execute breach). If you can pause, resume, and step forward at will, you don't need a separate button for every transition.
+- Arrests need more than one fixed outcome. Whether an arresting agent rejoins the squad immediately, escorts the enemy out of the building first and then rejoins, or does something else entirely should be a setting, not a hardcoded behavior.
+- An action log with timestamps would make it possible to see exactly how long each phase takes and how timing pressure actually shapes the outcome of a run, rather than eyeballing it.
+
+None of this is implemented yet, but it's a clear list of what I'd tackle next if I kept building on this system.
 
 ## After-Action Report: Common Problems and Solutions
 
-**Agents piling up at the doorway.** My first breach sequence sent every releasing agent toward the same single point a short distance through the door, meaning to let them spread out once inside. In practice this meant agents converging on one coordinate and jamming against each other in the doorway — whoever was released last had to shove through a growing crowd, and in a narrow door simply couldn't. Fixed by computing the full Room Clear Spread *before* releasing anyone, so each agent could be sent directly to its own final slot as it's released.
+**Formation targets that are reachable but tactically wrong.** A slot can land on a navmesh point that is technically valid, but only reachable by walking all the way around a wall instead of taking the short route the formation implies. I tried fixing this with a Dijkstra flood over the navmesh graph, scoring candidate points by real walking distance instead of straight-line distance. It worked in corridors, but it broke the room-clear spread. When the squad breaches a room and spreads out, the walking distance from the door to the final positions inside counted as too long. Those points were rejected, so agents refused to walk to spots they were supposed to take. Walking distance was punishing exactly the positions the room clear needed, so I dropped the idea. For now this stays a known limitation, and I'm not chasing a fully general fix.
 
-**A vision cone that could never see anything.** The very first version of the detection raycast started exactly at the viewing agent's own position. A ray starting at the center of a circle immediately re-intersects that same circle's boundary at `t = radius` — so the raycast would report a "blocking" hit (its own collider) before ever reaching a real target, for virtually every detection check regardless of distance. Offsetting the ray's starting point outward by the agent's own collider radius first fixed it — and the same fix got reused directly when fog of war needed the same kind of raycast later.
+**Slicing the pie not revealing much through a thick wall.** The technique sweeps along the door's threshold to progressively reveal more of the room before committing. This was conceptually a strong feature but earlier in development it didn't prove as useful due to my thick walls. I resolved the issue by making the tiled authored map to be much higher in resolution, so the walls could be thinner. 1 tile wouldn't be around 1 meter, now its around 10 cm. roughly.
 
-**A navmesh that looked fine but wasn't.** One polygon per tile, relying on a union step to stitch them together, occasionally left visible splits even in correctly-painted rooms. Merging same-type tiles into rectangles up front fixed it, and incidentally made navmesh generation faster besides.
+![alt text](assets/images/viewing-angles.png)
 
-**A squad that could softlock on an unreachable position.** The Room Clear Spread's outer slots sit near the full radius at a steep angle; in a tighter room than tuned for, that position can land outside the walkable navmesh, and that one agent's pathfinding silently fails. Since the squad only advances once every agent reports being in position, this could hang the whole mission on one agent that would never arrive. A timeout — proceed anyway after a few seconds, with a logged warning — turned a hard failure into a graceful one.
+**Agents blocking each other on approach to the breach point.** Before I made the "wall stack", agents would bunch up on top of the breach point. This wouldn't make sense tactically, everyone stands in the doorway and in danger of all the dangers inside the room. This also blocked the squad leader from slicing the pie which was another problem caused by this. I resolved the issue by adding the wall stack formation that it when approaching a breach point.
 
-**Two divergent copies of "spawn a squad."** Once restart existed, I had one spawn function from startup and a second, separately-written one for restarts, and they drifted apart in agent speed and vision parameters. A restart would silently create a second full set of agents on top of the still-alive originals; the overlapping colliders got violently flung apart by collision resolution the instant physics ran, which looked exactly like agents vanishing a frame after spawning. Fixed by making exactly one function define what spawning a squad means, called identically from startup and every restart path.
+**A squad that could softlock on an unreachable position.** The Room Clear Spread's outer slots sit near the full radius at a steep angle; in a tighter room than tuned for, that position can land outside the walkable navmesh, and that one agent's pathfinding silently fails. Since the squad only advances once every agent reports being in position, this could hang the whole mission on one agent that would never arrive. A timeout — proceed anyway after a few seconds, with a logged warning. This turned a hard failure into a fixable and easily diagnosable one.
+
+**Fog of war.** This was the most expensive feature I built, and I had to fix it three times. The fog splits the walkable area into a grid of small cells, and a cell stays revealed once an agent's vision cone has seen it.
+
+First, every cell was its own entity with its own mesh, so the renderer made thousands of draw calls per frame. The profiler showed **405 ms in the renderer alone**. I now combine all unseen cells into one mesh on a single entity, so the fog is one draw call, and I only rebuild that mesh when a cell is revealed. The renderer now takes **1.14 ms**.
+
+![CPU profile before: FogOfWar::Update at 93.6% of CPU time, mostly inside the physics raycast](assets/images/fog_profile_1_raycast.png)
+
+*Before: the raycast per cell takes almost all of the CPU time.*
+
+Second, a CPU profile showed `FogOfWar::Update` using **93.6% of all CPU time**, almost all of it in the physics raycast that checks whether each cell is visible. I replaced the raycast with a line-of-sight walk across the fog grid itself, where a missing cell counts as a wall, and I only update the fog ten times a second. That brought it down to **35.4%**.
+
+![CPU profile after the grid line of sight: FogOfWar::Update at 35.4%, mostly hash map lookups](assets/images/fog_profile_2_hashmap.png)
+
+*After the line-of-sight walk: the cost moves to hash map lookups.*
+
+Third, the profile showed the cost had moved: most of what was left was hash map lookups, because I looked up every cell around every agent in a `unordered_map`. Switching to a flat array indexed by cell coordinate brought it down to **about 7%**. What remains is mostly rebuilding the mesh when new cells are revealed.
+
+![CPU profile after the flat array: FogOfWar::Update at about 7%](assets/images/fog_profile_3_flat_array.png)
+
+*After the flat array: what remains is mostly rebuilding the mesh.*
 
 ## Debrief
 
-Formations turn out to be mostly discipline in a coordinate transform — local offsets, a shared center and facing, and judgment about when to swap which shape is active — rather than anything mathematically deep. The real work was everywhere around that core: making the group's movement respect the terrain, giving it something to react to, keeping squad-composition changes like an arrest coherent with role assignment and checkpointing instead of fighting them, and making the whole thing legible enough that someone other than me could sit down and immediately understand what it was doing.
+Formations turn out to be mostly discipline in a coordinate transform and local offsets, a shared center and facing, and judgment about when to swap which shape is active. The real work was everywhere around that core: making the group's movement respect the terrain, giving it something to react to, keeping squad-composition changes like an arrest coherent with role assignment and making the whole thing legible enough that someone other than me could sit down and immediately understand what it was doing.
 
 If I keep building on this, the natural next steps are coordinated multi-squad tactics and giving detected threats somewhere to actually retreat to. But as a first dive into formations, this covered the ground I set out to cover.
 
