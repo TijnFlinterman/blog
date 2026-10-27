@@ -6,7 +6,7 @@ layout: default
 
 # Adaptive Squad Formations for Breach-and-Clear AI
 
-I'm a 3rd year student and Breda University of Applied Sciences, my name is Tijn Flinterman and this blog post covers my journey through AI formations, What it is, how I made it and how I used it to make my SWAT-style breach-and-clear system in C++. 
+I'm a 3rd year student at Breda University of Applied Sciences, my name is Tijn Flinterman and this blog post covers my journey through AI formations, What it is, how I made it and how I used it to make my SWAT-style breach-and-clear system in C++. 
 
 **Table of contents**
 - Stack Up: Why Formations?
@@ -63,7 +63,7 @@ That's pretty much all the math for relative position. "facingOffsetDegrees" get
 
 ## Form Up: Formation Types
 
-At the end of development I had a few distinct shapes, each used in a different context of the breach sequence. Both corridor formations come from the US Army's urban-combat manual, FM 90-10-1 (thats why I spell it as "surpentine").
+At the end of development I had a few distinct shapes, each used in a different context of the breach sequence. Both corridor formations come from the US Army's urban-combat manual, FM 90-10-1 (that's why I spell it as "surpentine").
 
 **Surpentine** and **Rolling-T** are the two corridor-movement formations, and the ones I spent the most time on.
 
@@ -93,7 +93,7 @@ if (!editorSlots.empty())
 }
 ```
 
-Keeping the exact spacing and angles out of C++ was a something I purposely spend time on to give clearer context of relative positions and rotations (which is important for formations). This made it a lot more intuitive instead of having to make a huge list of magical numbers which are hard to tweak and imagine.
+Keeping the exact spacing and angles out of C++ was a something I purposely spent time on to give clearer context of relative positions and rotations (which is important for formations). This made it a lot more intuitive instead of having to make a huge list of magical numbers which are hard to tweak and imagine.
 
 **Wall Stack** lines agents up against the wall besides the breach point. The direction that it stacks on is set in level data. This formation is taken when the squad is close enough to a breach point where they prepare to breach.
 
@@ -149,7 +149,7 @@ void FormationSquad::Update(const Navmesh& navmesh, float dt)
 }
 ```
 
-The squad travels to a breach point using surpentine or rolling-T dependant on the corridor width, forms up in a Wall Stack beside the door to keep clear from enemies within the room, and waits for the breach command. On that command, the squad leader slices the pie sweeping the room to get as much vision of the room before going in.
+The squad travels to a breach point using surpentine or rolling-T dependent on the corridor width, forms up in a Wall Stack beside the door to keep clear from enemies within the room, and waits for the breach command. On that command, the squad leader slices the pie sweeping the room to get as much vision of the room before going in.
 
 The code for "Slicing the pie":
 
@@ -164,7 +164,7 @@ After slicing the pie, the squad breaches. One at a time the agents flood the ro
 --- 
 ![Breach sequence at a single doorway](./assets/images/breach-sequence.gif)
 
-*Forming up, slicing the pie, then entry through the breachpoint.*
+*Forming up, slicing the pie, then entry through the breach point.*
 
 ## Tight Quarters: Adaptive Corridor Movement
 
@@ -322,7 +322,7 @@ Improvement numbers:
 
 --- 
 ![Tiled level editor](assets/images/tiled-editor.png)
-*The level authored in Tiled: Floor, Corridor, and Walls layers, with a BreachPoint object's custom properties visible.*
+*The level authored in Tiled: Floor, Corridor, and Walls layers, with a Breach Point object's custom properties visible.*
 
 ## Eyes On: Detection and the Human Element
 
@@ -331,27 +331,30 @@ Formation movement alone doesn't make a breach feel tactical — it needs someth
 **Vision cones** Each agent carries a `VisionCone` (range, field of view, current target); every frame it checks nearby detectable entities for angle and range, then fires a single raycast to confirm line of sight:
 
 ```cpp
-float angle = glm::acos(glm::clamp(glm::dot(cone.facing, dirToTarget), -1.f, 1.f));
-if (angle > halfFovRad) continue; // outside the FOV wedge
+            float angle = glm::acos(glm::clamp(glm::dot(cone.facing, dirToTarget), -1.f, 1.f));
+            if (angle > halfFovRad) continue;
 
-const auto& hit = physicsSystem.RaycastGetNearest(rayStart, dirToTarget);
-bool blocked = false;
-if (hit.has_value() && hit->m_rayDistance < (dist - startOffset - 0.1f))
-{
-    auto* hitBody = ecs.Registry.try_get<physics::Body>(hit->m_hitEntity);
-    blocked = !hitBody || hitBody->GetType() == physics::Body::Static;
-}
+            const float startOffset = viewerRadius + 0.05f;
+            const vec2 rayStart = eyePos + dirToTarget * startOffset;
 
-if (blocked) continue;
+            const auto& hit = physicsSystem.RaycastGetNearest(rayStart, dirToTarget);
 
-cone.hasTarget = true;
-cone.detectedTarget = targetEntity;
-cone.lastKnownPosition = targetPos;
+            bool blocked = false;
+            if (hit.has_value() && hit->m_rayDistance < (dist - startOffset - 0.1f))
+            {
+                auto* hitBody = ecs.Registry.try_get<physics::Body>(hit->m_hitEntity);
+                blocked = !hitBody || hitBody->GetType() == physics::Body::Static;
+            }
+            if (blocked) continue;
 
-if (!ecs.Registry.any_of<Spotted>(targetEntity))
-{
-    ecs.Registry.emplace<Spotted>(targetEntity); // mark enemy as "Spotted"
-}
+            cone.hasTarget = true;
+            cone.detectedTarget = targetEntity;
+            cone.lastKnownPosition = targetPos;
+
+            if (!ecs.Registry.any_of<Spotted>(targetEntity))
+            {
+                ecs.Registry.emplace<Spotted>(targetEntity);
+            }
 ```
 
 **Fog of war** Rather than tracking visibility per enemy, I track it over a grid of fixed-size cells laid out across the walkable regions, each marked `everSeen` once any agent's vision cone confirms it:
@@ -412,7 +415,7 @@ This means an arrest, which shrinks the roster and re-indexes everyone, assigns 
 
 ## Briefing Room: Designer-Facing Tools
 
-For usability, I made a ImGui panel exposes squad speed, breach timing, corridor thresholds, and slice angle/duration as sliders that apply instantly, alongside buttons for every squad command and toggles for each debug layer.
+For usability, I made an ImGui panel that exposes squad speed, breach timing, corridor thresholds, and slice angle/duration as sliders that apply instantly, alongside buttons for every squad command and toggles for each debug layer.
 
 ![ImGui tuning panel](./assets/images/imgui-panel.png)
 
@@ -458,13 +461,13 @@ None of this is implemented yet, but it's a clear list of what I'd tackle next i
 
 **Formation targets that are reachable but tactically wrong.** A slot can land on a navmesh point that is technically valid, but only reachable by walking all the way around a wall instead of taking the short route the formation implies. I tried fixing this with a Dijkstra flood over the navmesh graph, scoring candidate points by real walking distance instead of straight-line distance. It worked in corridors, but it broke the room-clear spread. When the squad breaches a room and spreads out, the walking distance from the door to the final positions inside counted as too long. Those points were rejected, so agents refused to walk to spots they were supposed to take. Walking distance was punishing exactly the positions the room clear needed, so I dropped the idea. For now this stays a known limitation, and I'm not chasing a fully general fix.
 
-**Slicing the pie not revealing much through a thick wall.** The technique sweeps along the door's threshold to progressively reveal more of the room before committing. This was conceptually a strong feature but earlier in development it didn't prove as useful due to my thick walls. I resolved the issue by making the tiled authored map to be much higher in resolution, so the walls could be thinner. 1 tile wouldn't be around 1 meter, now its around 10 cm. roughly.
+**Slicing the pie not revealing much through a thick wall.** The technique sweeps along the door's threshold to progressively reveal more of the room before committing. This was conceptually a strong feature but earlier in development it didn't prove as useful due to my thick walls. I resolved the issue by making the tiled authored map to be much higher in resolution, so the walls could be thinner. One tile used to be around 1 meter, now it’s around 10 cm.
 
 ![alt text](assets/images/viewing-angles.png)
 
 **Agents blocking each other on approach to the breach point.** Before I made the "wall stack", agents would bunch up on top of the breach point. This wouldn't make sense tactically, everyone stands in the doorway and in danger of all the dangers inside the room. This also blocked the squad leader from slicing the pie which was another problem caused by this. I resolved the issue by adding the wall stack formation that it when approaching a breach point.
 
-**A squad that could softlock on an unreachable position.** The Room Clear Spread's outer slots sit near the full radius at a steep angle; in a tighter room than tuned for, that position can land outside the walkable navmesh, and that one agent's pathfinding silently fails. Since the squad only advances once every agent reports being in position, this could hang the whole mission on one agent that would never arrive. A timeout — proceed anyway after a few seconds, with a logged warning. This turned a hard failure into a fixable and easily diagnosable one.
+**A squad that could softlock on an unreachable position.** The Room Clear Spread's outer slots sit near the full radius at a steep angle; in a tighter room than tuned for, that position can land outside the walkable navmesh, and that one agent's pathfinding silently fails. Since the squad only advances once every agent reports being in position, this could hang the whole mission on one agent that would never arrive. Now, when a target position can't be reached, the agent moves to the closest point on the navmesh instead and marks its move command as done. That turns a hard failure into a small positional error.
 
 **Fog of war.** This was the most expensive feature I built, and I had to fix it twice. The fog splits the walkable area into a grid of small cells, and a cell stays revealed once an agent's vision cone has seen it.
 
