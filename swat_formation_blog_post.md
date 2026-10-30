@@ -74,7 +74,7 @@ At the end of development I had a few distinct shapes, each used in a different 
 --- 
 ![alt text](assets/images/formation_variants.png)
 
-Instead of hard-coding the shape in C++, you can create formations based on squad size with 2 settings for narrow and wide with position and offsets using a small editor. This exports the data into JSON which is later used during runtime.
+Instead of hard-coding the shape in C++, formations are authored in a small formation editor, where the position and rotation of every slot is set per squad size, for a narrow and a wide variant. The editor exports the data as JSON, which the game loads at runtime.
 
 ```cpp
 const auto& editorSlots = m_formationEditor->GetFormation(squadSize, variant);
